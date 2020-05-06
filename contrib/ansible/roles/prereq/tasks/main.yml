@@ -33,3 +33,9 @@
     state: present
     reload: yes
   when: ansible_distribution == 'CentOS' or ansible_distribution == 'Red Hat Enterprise Linux'
+
+- name: "set timezone to {{ timezone }}"
+  timezone:
+    name: "{{ timezone }}"
+  notify: restart cron
+  when: timezone is defined

@@ -1,9 +1,34 @@
 ---
+- name: Determine if k3s is already present
+  stat:
+    path: /usr/local/bin/k3s
+  register: stat_k3s
 
-- name: Delete k3s if already present
+- name: Load k3s version if present
+  command:
+    cmd: k3s -v
+    chdir: /usr/local/bin
+  register: existing_k3s_version
+  when: stat_k3s.stat.exists
+
+- name: Delete k3s if wrong version is present
   file:
     path: /usr/local/bin/k3s
     state: absent
+  when:
+    ( stat_k3s.stat.exists )
+      and
+    ( existing_k3s_version.stdout is not search(' ' + k3s_version + ' '))
+
+- set_fact: Determine if download is needed
+    k3s_download_needed=yes
+  when:
+    ( ( stat_k3s.stat.exists )
+        and
+      ( existing_k3s_version.stdout is not search(' ' + k3s_version + ' '))
+      or
+    ( not stat_k3s.stat.exists) )
+
 
 - name: Download k3s binary x64
   get_url:
@@ -13,7 +38,10 @@
       group: root
       mode: 755
 #  when: ( ansible_facts.userspace_architecture == "x86_64" )
-  when: ( ansible_facts.architecture == "x86_64" )
+  when:
+    ( k3s_download_needed is defined )
+      and
+    ( ansible_facts.architecture == "x86_64" )
 
 - name: Download k3s binary arm64
   get_url:
@@ -22,9 +50,27 @@
       owner: root
       group: root
       mode: 755
-  when: ( ansible_facts.architecture is search("arm") )
-          and
-        ( ansible_facts.userspace_bits == "64" )
+  when:
+    ( k3s_download_needed is defined )
+      and
+    ( ansible_facts.architecture is search("arm") )
+      and
+    ( ansible_facts.userspace_bits == "64" )
+
+# Raspbian in 64 bit mode presents its architecture as "aarch64", while
+# continuing to run a suite of 32 bit userspace apps. It is able to run
+# 64 bit packages however.
+- name: Download k3s binary arm64 for Raspbian 64
+  get_url:
+      url: https://github.com/rancher/k3s/releases/download/{{ k3s_version }}/k3s-arm64
+      dest: /usr/local/bin/k3s
+      owner: root
+      group: root
+      mode: 755
+  when:
+    ( k3s_download_needed is defined )
+      and
+    ( ansible_facts.architecture is search("aarch64") )
 
 - name: Download k3s binary armhf
   get_url:
@@ -33,6 +79,9 @@
       owner: root
       group: root
       mode: 755
-  when: ( ansible_facts.architecture is search("arm") )
-          and
-        ( ansible_facts.userspace_bits == "32" )
+  when:
+    ( k3s_download_needed is defined )
+      and
+    ( ansible_facts.architecture is search("arm") )
+      and
+    ( ansible_facts.userspace_bits == "32" )
