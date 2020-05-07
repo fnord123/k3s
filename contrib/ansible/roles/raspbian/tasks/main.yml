@@ -1,9 +1,23 @@
 ---
 
-- name: Test for Raspbian
+- name: Test for Raspbian via presence of /boot/cmdline.txt
   stat:
     path: /boot/cmdline.txt
   register: cmdline
+
+# Raspbian is a Debian derivative
+- set_fact: Full verification of Raspbian for both 32 and 64 bit.
+    raspbian_present=true
+  when:
+    ( cmdline.stat.path is defined )
+      and
+    ( ansible_os_family == "Debian" )
+      and
+    ( ( ansible_lsb is defined )
+        and
+      ( ansible_lsb.id is defined )
+        and
+      ( ansible_lsb.id == "Raspbian" ) )
 
 - name: Activating cgroup on Raspbian
   lineinfile:
@@ -11,14 +25,44 @@
     regexp: '^(.*rootwait)$'
     line: '\1 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory'
     backrefs: true
-  when: ( cmdline.stat.path is defined )
+  when: ( raspbian_present is defined )
           and
-        ( ansible_facts.architecture is search("arm") )
+        ( raspbian_present == true )
   register: boot_cmdline
+
+- name: Install rpi-update package if needed for 64 bit.
+  apt:
+    name: rpi-update
+    state: present
+  when: ( switch_raspian_to_64bit is defined and switch_raspian_to_64bit == true )
+
+- name: Run rpi-update if needed for 64 bit if 64 bit not already present.
+  command: /usr/bin/rpi-update
+  when: 
+    ( switch_raspian_to_64bit is defined and switch_raspian_to_64bit == true )
+      and
+    ( ansible_machine != 'aarch64' )
+  environment:
+    SKIP_WARNING: 1
+
+- name: Activating 64 bit raspbian is requested and not already present
+  lineinfile:
+    path: /boot/config.txt
+    line: 'arm_64bit=1'
+  when: 
+    ( switch_raspian_to_64bit is defined and switch_raspian_to_64bit == true )
+      and
+    ( ansible_machine != 'aarch64' )
+  register: arm_64bit_activated
 
 - name: Rebooting on Raspbian 
   shell: reboot now
   ignore_errors: true
-  when: ( boot_cmdline is changed )
+  when: 
+    ( arm_64bit_activated is defined and arm_64bit_activated == true )
+      or
+    ( ( boot_cmdline is changed )
+        and
+      ( ( raspbian_present is defined )
           and
-        ( ansible_facts.architecture is search("arm") )
+        ( raspbian_present == true ) ) )
